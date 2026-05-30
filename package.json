@@ -1,0 +1,67 @@
+{
+  "name": "expo-zeroconf",
+  "version": "0.0.1",
+  "description": "High-performance, JSI-powered Expo native module for ZeroConf/mDNS/DNS-SD service discovery and publishing on local networks. Supports iOS and Android with full New Architecture compatibility.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "source": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "android/src",
+    "android/build.gradle",
+    "ios",
+    "expo-module.config.json",
+    "expo-zeroconf.podspec",
+    "app.plugin.js"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "expo-module",
+    "expo",
+    "zeroconf",
+    "mdns",
+    "dns-sd",
+    "bonjour",
+    "discovery",
+    "network",
+    "iot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bc-bane/expo-zeroconf"
+  },
+  "author": "bc-bane",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bc-bane/expo-zeroconf/issues"
+  },
+  "homepage": "https://github.com/bc-bane/expo-zeroconf#readme",
+  "expo": {
+    "autoInstall": true,
+    "name": "ExpoZeroconf"
+  },
+  "peerDependencies": {
+    "expo": ">=56.0.0",
+    "react": ">=19.2.0",
+    "react-native": ">=0.78.0"
+  },
+  "devDependencies": {
+    "expo": "^56.0.0",
+    "expo-modules-core": "~56.0.0",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "typescript": "^5.0.0"
+  }
+}

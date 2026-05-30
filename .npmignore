@@ -1,0 +1,11 @@
+src/
+__tests__/
+__mocks__/
+tsconfig.json
+jest.config.js
+example/
+.vscode/
+.github/
+.gitignore
+.npmignore
+.nvmrc

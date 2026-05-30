@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Expo Zeroconf Example",
+    "slug": "expo-zeroconf-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "expo.modules.zeroconf.example",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "This app uses the local network to discover and register Bonjour / ZeroConf services.",
+        "NSBonjourServices": [
+          "_http._tcp",
+          "_printer._tcp",
+          "_expo-test._tcp"
+        ]
+      },
+      "entitlements": {},
+      "appleTeamId": "9ALNXHALH4"
+    },
+    "android": {
+      "package": "expo.modules.zeroconf.example"
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
+  }
+}

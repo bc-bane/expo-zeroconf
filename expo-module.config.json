@@ -1,0 +1,11 @@
+{
+  "name": "ExpoZeroconf",
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["ExpoZeroconfModule"],
+    "podspecPath": "expo-zeroconf.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.zeroconf.ExpoZeroconfModule"]
+  }
+}
