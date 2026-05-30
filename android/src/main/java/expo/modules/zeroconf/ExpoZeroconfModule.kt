@@ -35,6 +35,10 @@ class PublishedService(
   fun unpublish() {
     module.removePublishedService(this, serviceInfo)
   }
+
+  override fun sharedObjectDidRelease() {
+    unpublish()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,9 @@ class ExpoZeroconfModule : Module() {
 
     // JSI Class mapping for PublishedService
     Class(PublishedService::class) {
+      Constructor {
+        PublishedService("", "", NsdServiceInfo(), this@ExpoZeroconfModule)
+      }
       Property("name") { service: PublishedService ->
         service.name
       }
@@ -105,10 +112,6 @@ class ExpoZeroconfModule : Module() {
         service.type
       }
       Function("unpublish") { service: PublishedService ->
-        service.unpublish()
-      }
-      // Modern JSI deterministic release hook replacing deprecated JVM finalize()
-      OnRelease { service ->
         service.unpublish()
       }
     }
@@ -144,7 +147,7 @@ class ExpoZeroconfModule : Module() {
           for ((key, value) in options.txt) {
             try {
               val decodedBytes = android.util.Base64.decode(value, android.util.Base64.NO_WRAP)
-              setAttribute(key, decodedBytes)
+              setAttribute(key, String(decodedBytes, Charsets.UTF_8))
             } catch (_: Exception) {
               setAttribute(key, value)
             }
@@ -168,8 +171,9 @@ class ExpoZeroconfModule : Module() {
         }
 
         override fun onServiceRegistered(registeredServiceInfo: NsdServiceInfo) {
-          val actualName = registeredServiceInfo.serviceName
-          val actualType = registeredServiceInfo.serviceType.trim('.')
+          val actualName = registeredServiceInfo.serviceName ?: options.name
+          val rawType = registeredServiceInfo.serviceType ?: serviceInfo.serviceType ?: options.type
+          val actualType = rawType.trim('.')
           val key = "$actualName|$actualType"
 
           registrationListeners.remove(listenerKey)
@@ -247,7 +251,7 @@ class ExpoZeroconfModule : Module() {
       resolveChannel.trySend(ResolveTask.Manual(serviceInfo, promise))
     }
 
-    OnAppEntersBackground {
+    OnActivityEntersBackground {
       val context = appContext.reactContext
       val nsdManager = context?.getSystemService(Context.NSD_SERVICE) as? NsdManager
       
@@ -268,7 +272,7 @@ class ExpoZeroconfModule : Module() {
       releaseMulticastLock()
     }
 
-    OnAppEntersForeground {
+    OnActivityEntersForeground {
       if (isScanningBeforeBackground) {
         isScanningBeforeBackground = false
         for ((scanId, params) in scanParams) {

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "expo": "~56.0.7",
-    "expo-zeroconf": "../",
+    "expo-zeroconf": "^0.0.2",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-native": "0.85.3"

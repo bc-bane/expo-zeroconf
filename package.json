@@ -1,6 +1,6 @@
 {
   "name": "expo-zeroconf",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "High-performance, JSI-powered Expo native module for ZeroConf/mDNS/DNS-SD service discovery and publishing on local networks. Supports iOS and Android with full New Architecture compatibility.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
