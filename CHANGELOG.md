@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.3] - 2026-05-29
+
+### Fixed
+- **iOS Swift Conformance & Compilation**: Decoupled Cocoa delegate conformances (`NetServiceDelegate` and `NetServiceBrowserDelegate`) into standalone proxy classes (`PublishedServiceDelegate` and `ZeroconfDelegateCoordinator` inheriting from `NSObject`) to completely bypass multi-inheritance errors on Expo `SharedObject` and `Module` classes.
+- **Modern iOS APIs**: Upgraded Swift signatures to use modern equivalents (`netService(_:didUpdateTXTRecord:)` and `setTXTRecord(_:)`), resolving Xcode compiler warnings and obsoletion failures.
+- **Service Persistence ("Ghost Service" Fix)**: Promoted native `publishedServices` registries from weak reference collections to strong in-memory mappings on both iOS and Android. This guarantees advertised services stay active on the local network indefinitely, resolving the bug where active services unregistered themselves within milliseconds due to JS garbage collection lags.
+- **Android Double-Settle Crash Prevention**: Wrapped asynchronous JSI promises in both `publish` and manual `resolveService` inside a thread-safe atomic `SafePromise` helper class (utilizing `AtomicBoolean` compare-and-set). This prevents fatal production crashes in JSI if the system `NsdManager` fires asynchronous success/fail callbacks multiple times or concurrently with synchronous exceptions.
+- **Example App Dynamic Publishing**: Upgraded the example app publisher to dynamically broadcast the type entered in the scanning box, enabling easy routing tests of standard protocols like `"http"`.
+
 ## [0.0.2] - 2026-05-29
 
 ### Added

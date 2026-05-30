@@ -45,12 +45,33 @@ internal final class BonjourRunLoop: Thread {
 // Published Service Shared Object
 // ---------------------------------------------------------------------------
 
-internal final class PublishedService: SharedObject, NetServiceDelegate {
+internal final class PublishedServiceDelegate: NSObject, NetServiceDelegate {
+  private weak var owner: PublishedService?
+
+  init(owner: PublishedService) {
+    self.owner = owner
+  }
+
+  func netServiceDidPublish(_ sender: NetService) {
+    owner?.netServiceDidPublish(sender)
+  }
+
+  func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
+    owner?.netService(sender, didNotPublish: errorDict)
+  }
+
+  func netServiceDidStop(_ sender: NetService) {
+    owner?.netServiceDidStop(sender)
+  }
+}
+
+internal final class PublishedService: SharedObject {
   var name: String
   var type: String
   private let service: NetService
   private weak var module: ExpoZeroconfModule?
   fileprivate var pendingPromise: Promise?
+  private var delegateHelper: PublishedServiceDelegate?
 
   init(name: String, type: String, service: NetService, module: ExpoZeroconfModule) {
     self.name = name
@@ -58,13 +79,17 @@ internal final class PublishedService: SharedObject, NetServiceDelegate {
     self.service = service
     self.module = module
     super.init()
-    self.service.delegate = self
+    let delegate = PublishedServiceDelegate(owner: self)
+    self.delegateHelper = delegate
+    self.service.delegate = delegate
   }
 
   func unpublish() {
     BonjourRunLoop.shared.execute { [weak self] in
       guard let self = self else { return }
       self.service.stop()
+      self.service.delegate = nil
+      self.delegateHelper = nil
       self.module?.removePublishedService(self)
     }
   }
@@ -72,6 +97,7 @@ internal final class PublishedService: SharedObject, NetServiceDelegate {
   deinit {
     let svc = self.service
     BonjourRunLoop.shared.execute {
+      svc.delegate = nil
       svc.stop()
     }
   }
@@ -87,7 +113,7 @@ internal final class PublishedService: SharedObject, NetServiceDelegate {
       
       if let module = self.module {
         module.pendingPublishServices.removeValue(forKey: oldKey)
-        module.publishedServices[newKey] = WeakPublishedService(value: self)
+        module.publishedServices[newKey] = self
         module.originalToResolvedKeys[oldKey] = newKey
       }
       
@@ -131,21 +157,56 @@ internal struct WeakPublishedService {
   weak var value: PublishedService?
 }
 
+internal final class ZeroconfDelegateCoordinator: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
+  private weak var module: ExpoZeroconfModule?
+
+  init(module: ExpoZeroconfModule) {
+    self.module = module
+  }
+
+  // ----- NetServiceBrowserDelegate -----
+  func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+    module?.netServiceBrowser(browser, didFind: service, moreComing: moreComing)
+  }
+
+  func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
+    module?.netServiceBrowser(browser, didRemove: service, moreComing: moreComing)
+  }
+
+  func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String : NSNumber]) {
+    module?.netServiceBrowser(browser, didNotSearch: errorDict)
+  }
+
+  // ----- NetServiceDelegate -----
+  func netServiceDidResolveAddress(_ sender: NetService) {
+    module?.netServiceDidResolveAddress(sender)
+  }
+
+  func netService(_ sender: NetService, didNotResolve errorDict: [String : NSNumber]) {
+    module?.netService(sender, didNotResolve: errorDict)
+  }
+
+  func netService(_ sender: NetService, didUpdateTXTRecord data: Data) {
+    module?.netService(sender, didUpdateTXTRecord: data)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Expo Zeroconf Native Module
 // ---------------------------------------------------------------------------
 
 public final class ExpoZeroconfModule: Module {
+  private lazy var delegateCoordinator = ZeroconfDelegateCoordinator(module: self)
   private var browsers = [String: NetServiceBrowser]()            // scanId: browser
   private var activeResolvers = [String: [NetService]]()          // scanId: list of services being resolved
   private var serviceScanIds = [NetService: String]()             // service: scanId
-  internal var publishedServices = [String: WeakPublishedService]()    // "name|type": published service
+  internal var publishedServices = [String: PublishedService]()    // "name|type": published service
   internal var pendingPublishServices = [String: PublishedService]()    // "name|type": pending service during publish handshake
   private var scanConfigs = [String: Bool]()                      // scanId: autoResolve
   private var scanParams = [String: (type: String, domain: String)]() // scanId: (type, domain)
   private var isScanningBeforeBackground = false
   private var manualResolvers = [NetService: Promise]()           // manual resolver netServices
-  private var originalToResolvedKeys = [String: String]()         // "originalName|type": "resolvedName|type"
+  internal var originalToResolvedKeys = [String: String]()         // "originalName|type": "resolvedName|type"
 
   public func definition() -> ModuleDefinition {
     Name("ExpoZeroconf")
@@ -184,7 +245,7 @@ public final class ExpoZeroconfModule: Module {
         }
         
         let browser = NetServiceBrowser()
-        browser.delegate = self
+        browser.delegate = self.delegateCoordinator
         self.browsers[scanId] = browser
         
         browser.searchForServices(ofType: type, inDomain: domain)
@@ -239,7 +300,7 @@ public final class ExpoZeroconfModule: Module {
           }
         }
         let txtRecordData = NetService.data(fromTXTRecord: txtDataMap)
-        service.setTXTRecordData(txtRecordData)
+        service.setTXTRecord(txtRecordData)
         
         let key = "\(options.name)|\(options.type)"
         let pubSvc = PublishedService(name: options.name, type: options.type, service: service, module: self)
@@ -261,8 +322,7 @@ public final class ExpoZeroconfModule: Module {
         let originalKey = "\(name)|\(type)"
         let resolvedKey = self.originalToResolvedKeys.removeValue(forKey: originalKey) ?? originalKey
         
-        if let weakPubSvc = self.publishedServices.removeValue(forKey: resolvedKey),
-           let pubSvc = weakPubSvc.value {
+        if let pubSvc = self.publishedServices.removeValue(forKey: resolvedKey) {
           pubSvc.unpublish()
         } else if let pubSvc = self.pendingPublishServices.removeValue(forKey: originalKey) {
           pubSvc.unpublish()
@@ -279,7 +339,7 @@ public final class ExpoZeroconfModule: Module {
         }
         
         let resolver = NetService(domain: domain, type: type, name: name)
-        resolver.delegate = self
+        resolver.delegate = self.delegateCoordinator
         self.manualResolvers[resolver] = promise
         resolver.resolve(withTimeout: 5.0)
       }
@@ -319,7 +379,7 @@ public final class ExpoZeroconfModule: Module {
             let autoResolve = self.scanConfigs[scanId] ?? true
             
             let browser = NetServiceBrowser()
-            browser.delegate = self
+            browser.delegate = self.delegateCoordinator
             self.browsers[scanId] = browser
             browser.searchForServices(ofType: params.type, inDomain: params.domain)
           }
@@ -358,8 +418,8 @@ public final class ExpoZeroconfModule: Module {
         self.manualResolvers.removeAll()
         
         // Stop and unpublish all published services
-        for weakPubSvc in self.publishedServices.values {
-          weakPubSvc.value?.unpublish()
+        for pubSvc in self.publishedServices.values {
+          pubSvc.unpublish()
         }
         self.publishedServices.removeAll()
         self.originalToResolvedKeys.removeAll()
@@ -391,7 +451,7 @@ public final class ExpoZeroconfModule: Module {
 // NetServiceBrowserDelegate & NetServiceDelegate Mappings
 // ---------------------------------------------------------------------------
 
-extension ExpoZeroconfModule: NetServiceBrowserDelegate, NetServiceDelegate {
+extension ExpoZeroconfModule {
   
   // ----- NetServiceBrowserDelegate -----
   
@@ -414,7 +474,7 @@ extension ExpoZeroconfModule: NetServiceBrowserDelegate, NetServiceDelegate {
     
     // Instantiate a resolver for this service
     let resolver = NetService(domain: service.domain, type: service.type, name: service.name)
-    resolver.delegate = self
+    resolver.delegate = self.delegateCoordinator
     
     if activeResolvers[scanId] == nil {
       activeResolvers[scanId] = []
@@ -489,7 +549,7 @@ extension ExpoZeroconfModule: NetServiceBrowserDelegate, NetServiceDelegate {
     cleanupResolver(sender)
   }
 
-  public func netService(_ sender: NetService, didUpdateTXTRecordData data: Data) {
+  public func netService(_ sender: NetService, didUpdateTXTRecord data: Data) {
     let addresses = parseAddresses(from: sender)
     let txt = parseTxtRecord(from: sender)
     let serviceData: [String: Any] = [

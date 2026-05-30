@@ -54,12 +54,32 @@ class PublishOptions : Record {
 }
 
 // ---------------------------------------------------------------------------
+// Thread-Safe Settled Promise Wrapper
+// ---------------------------------------------------------------------------
+
+class SafePromise(private val promise: expo.modules.kotlin.Promise) {
+  private val settled = java.util.concurrent.atomic.AtomicBoolean(false)
+
+  fun resolve(value: Any? = null) {
+    if (settled.compareAndSet(false, true)) {
+      promise.resolve(value)
+    }
+  }
+
+  fun reject(code: String, message: String?, throwable: Throwable? = null) {
+    if (settled.compareAndSet(false, true)) {
+      promise.reject(code, message, throwable)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sequential Resolve Request Models
 // ---------------------------------------------------------------------------
 
 sealed class ResolveTask {
   data class Auto(val scanId: String, val serviceInfo: NsdServiceInfo) : ResolveTask()
-  data class Manual(val serviceInfo: NsdServiceInfo, val promise: Promise) : ResolveTask()
+  data class Manual(val serviceInfo: NsdServiceInfo, val promise: SafePromise) : ResolveTask()
 }
 
 sealed class ResolveResult {
@@ -77,7 +97,7 @@ class ExpoZeroconfModule : Module() {
   private val moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val discoveryListeners = ConcurrentHashMap<String, NsdManager.DiscoveryListener>()
   private val registrationListeners = ConcurrentHashMap<String, NsdManager.RegistrationListener>()
-  private val publishedServices = ConcurrentHashMap<String, java.lang.ref.WeakReference<PublishedService>>()
+  private val publishedServices = ConcurrentHashMap<String, PublishedService>()
   private val scanConfigs = ConcurrentHashMap<String, Boolean>()
   private val scanParams = ConcurrentHashMap<String, Triple<String, String, Boolean>>() // scanId: Triple(type, domain, autoResolve)
   private var isScanningBeforeBackground = false
@@ -125,10 +145,11 @@ class ExpoZeroconfModule : Module() {
     }
 
     AsyncFunction("publish") { options: PublishOptions, promise: Promise ->
+      val safePromise = SafePromise(promise)
       val context = appContext.reactContext
       val nsdManager = context?.getSystemService(Context.NSD_SERVICE) as? NsdManager
       if (nsdManager == null) {
-        promise.reject("ERR_ZEROCONF_NSD_UNAVAILABLE", "NSD Manager is unavailable", null)
+        safePromise.reject("ERR_ZEROCONF_NSD_UNAVAILABLE", "NSD Manager is unavailable", null)
         return@AsyncFunction
       }
 
@@ -163,7 +184,7 @@ class ExpoZeroconfModule : Module() {
         override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
           registrationListeners.remove(listenerKey)
           releaseMulticastLock()
-          promise.reject("ERR_ZEROCONF_PUBLISH_FAILED", "Failed to register service. Code: $errorCode", null)
+          safePromise.reject("ERR_ZEROCONF_PUBLISH_FAILED", "Failed to register service. Code: $errorCode", null)
         }
 
         override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) {
@@ -186,8 +207,8 @@ class ExpoZeroconfModule : Module() {
             registeredServiceInfo,
             this@ExpoZeroconfModule
           )
-          publishedServices[key] = java.lang.ref.WeakReference(pubSvc)
-          promise.resolve(pubSvc)
+          publishedServices[key] = pubSvc
+          safePromise.resolve(pubSvc)
         }
 
         override fun onServiceUnregistered(info: NsdServiceInfo) {
@@ -202,7 +223,7 @@ class ExpoZeroconfModule : Module() {
       } catch (e: Exception) {
         registrationListeners.remove(listenerKey)
         releaseMulticastLock()
-        promise.reject("ERR_ZEROCONF_PUBLISH_EXCEPTION", e.message ?: "Failed to register service", e)
+        safePromise.reject("ERR_ZEROCONF_PUBLISH_EXCEPTION", e.message ?: "Failed to register service", e)
       }
     }
 
@@ -211,8 +232,7 @@ class ExpoZeroconfModule : Module() {
       val originalKey = "$name|$cleanType"
       val resolvedKey = originalToResolvedKeys.remove(originalKey) ?: originalKey
 
-      val ref = publishedServices.remove(resolvedKey)
-      val pubSvc = ref?.get()
+      val pubSvc = publishedServices.remove(resolvedKey)
       if (pubSvc != null) {
         pubSvc.unpublish()
       } else {
@@ -248,7 +268,8 @@ class ExpoZeroconfModule : Module() {
         serviceType = cleanType
       }
 
-      resolveChannel.trySend(ResolveTask.Manual(serviceInfo, promise))
+      val safePromise = SafePromise(promise)
+      resolveChannel.trySend(ResolveTask.Manual(serviceInfo, safePromise))
     }
 
     OnActivityEntersBackground {

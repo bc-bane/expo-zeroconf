@@ -93,7 +93,7 @@ export default function App() {
       try {
         const pub = await publishService({
           name: pubName,
-          type: "expo-test", // automatically appends _tcp or protocol suffix
+          type: serviceType, // Dynamically use the scan/publish type entered in the input!
           port: isNaN(parsedPort) ? 9999 : parsedPort,
           txt: {
             sdk: "expo-56",
